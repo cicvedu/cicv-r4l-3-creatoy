@@ -2,6 +2,14 @@
 
 [作业内容](https://docs.qq.com/doc/DSk5xTHRJY1FZVUdK)
 
+### 练习作业各阶段结果
+
+[作业 1](#homework.1)
+
+[作业 2](#homework.2)
+
+[作业 3](#homework.3)
+
 > 因为我日常使用的是 Archlinux，这里没有使用 docker 而是直接使用主机作为开发环境。由于很多工具之前都已经安装好了，这里就没有记录。另外 Archlinux 上很多工具和库版本都很新，所以作业操作过程中出了不少问题...
 > 
 > <div align="center"> <img src=./docs/images/host_env.png width=80% /> </div>
@@ -11,7 +19,7 @@
 #### 1. 安装 bindgen 时出现错误：error: Usage of HTTP-based registries requires `-Z http-registry`  
 改为使用下面的命令：
 ```
-cargo +nightly install --locked --version $(scripts/min-tool-version.sh bindgen) bindgen
+cargo +nig1htly install --locked --version $(scripts/min-tool-version.sh bindgen) bindgen
 ```
 
 环境配置完成后运行 make LLVM=1 rustavailable
@@ -47,6 +55,8 @@ make LLVM=1 menuconfig
 > 更方便的方法是使用搜索功能后使用数字键快速跳转到菜单项  
 
 <img src=./docs/images/linux_rust_config.png width=80% />
+
+<div id="homework.1"></div>
 
 接着进行内核的编译：
 ```sh
@@ -95,12 +105,13 @@ make LLVM=1 -j$(nproc)
 驱动编译:
 ```sh
 cd src_e1000
-make LLVM=1
+make LLVM=/usr/lib/llvm14/bin/
 ```
 
 <img src=./docs/images/e1000_compile.png width=80% />
 
 启动内核:
+> 运行脚本前先把里面的 LLVM=1 也改成 LLVM=/usr/lib/llvm14/bin/  
 ```sh
 ./build_image.sh
 ```
@@ -125,13 +136,10 @@ ip route add default via 10.0.2.1
 ping 10.0.2.2
 ```
 
+<div id="homework.2"></div>
+
 <img src=./docs/images/e1000_insmod.png width=80% />
 <img src=./docs/images/e1000_ping.png width=80% />
-
-
-
-
-
 
 #### 作业问题回答:
 Q1、编译成内核模块，是在哪个文件中以哪条语句定义的？
@@ -144,4 +152,46 @@ A2: 在 Makefile 中使用 $(MAKE) -C $(KDIR) M=$$PWD 命令指定了内核和�
 
 ---
 
- 
+### 作业3: 使用 rust 编写一个简单的内核模块并运行 
+
+#### 操作流程:
+1. 在 linux/samples/rust/ 目录下添加 rust_helloworld.rs 文件(文件内容见[作业内容]的作业3)
+2. 修改 linux/samples/rust/ 目录下的 Makefile 和 Kconfig 文件
+- 在 Makefile 第 2 行添加
+```sh
+obj-$(CONFIG_SAMPLE_RUST_HELLOWORLD)	+= rust_helloworld.o
+```
+- 在 Kconfig 第 13-21 行添加
+```
+config SAMPLE_RUST_HELLOWORLD
+	tristate "Hello world module"
+	help
+	  This option builds the Rust hello world module sample.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_helloworld.
+
+	  If unsure, say N.
+```
+3. 修改内核模块配置
+```sh
+make LLVM=/usr/lib/llvm14/bin/ menuconfig
+```
+<img src=./docs/images/rust_helloworld_config.png width=80% />
+
+<div id="homework.3"></div>
+
+4. 启动内核检查模块功能是否正常
+```sh
+cp samples/rust/rust_helloworld.ko ../src_e1000/rootfs/
+cd ../src_e1000
+./build_image.sh
+```
+<img src=./docs/images/rust_helloworld_module.png width=80% />
+
+#### 修改后的文件
+[Makefile](./linux/samples/rust/Makefile)
+
+[Kconfig](./linux/samples/rust/Kconfig)
+
+---
