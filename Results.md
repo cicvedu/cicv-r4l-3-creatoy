@@ -32,3 +32,18 @@ A2: 在 Makefile 中使用 $(MAKE) -C $(KDIR) M=$$PWD 命令指定了内核和�
 ### 作业 5
 
 <img src=./docs/images/char_dev_test.png width=100% />
+
+### 项目小试验
+
+#### 环境:
+
+- NFS: 
+
+<img src=./docs/images/nfs_server.png width=100% />
+
+- Telnet: 
+
+<img src=./docs/images/telnet_server.png width=80% />
+
+#### 实战:
+

@@ -5,3 +5,10 @@ linux/build
 *.a
 *.d
 .*.cmd
+*.ko
+*.mod
+*.mod.c
+*.symvers
+*.order
+dump.dat
+r4l_experiment/initramfs

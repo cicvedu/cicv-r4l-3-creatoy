@@ -391,3 +391,21 @@ cd ../src_e1000
 #### 实验效果:
 <img src=./docs/images/char_dev_test.png width=80% />
 
+---
+
+## 项目小试验
+#### 环境配置
+##### 1. 创建 initramfs 镜像
+
+<img src=./docs/images/initramfs.png width=80% />
+
+##### 2. 支持 NFS
+
+<img src=./docs/images/nfs_server.png width=80% />
+
+##### 3. 支持 Telnet server
+
+<img src=./docs/images/telnet_server.png width=60% />
+
+#### 项目实战:
+
