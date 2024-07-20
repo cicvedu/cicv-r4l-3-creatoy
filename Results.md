@@ -27,3 +27,8 @@ A2: 在 Makefile 中使用 $(MAKE) -C $(KDIR) M=$$PWD 命令指定了内核和�
 
 <img src=./docs/images/e1000_rmmod_op.png width=100% />
 <img src=./docs/images/e1000_rmmod_ping.png width=100% />
+
+
+### 作业 5
+
+<img src=./docs/images/char_dev_test.png width=100% />

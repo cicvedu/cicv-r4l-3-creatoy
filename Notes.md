@@ -94,7 +94,7 @@ make LLVM=1 -j$(nproc)
 > NOTE: 按下 CTRL + A 后松开再按 X 可退出 QEMU
 
 #### 操作流程:
-驱动编译:
+1. 驱动编译:
 ```sh
 cd src_e1000
 make LLVM=1
@@ -102,7 +102,7 @@ make LLVM=1
 
 <img src=./docs/images/e1000_compile.png width=80% />
 
-启动内核:
+2. 启动内核:
 > 运行脚本前先把里面的 LLVM=1 也改成 LLVM=/usr/lib/llvm14/bin/  
 ```sh
 ./build_image.sh
@@ -110,7 +110,7 @@ make LLVM=1
 
 <img src=./docs/images/kernel_launch.png width=80% />
 
-修改内核配置，禁用 e1000 网卡驱动:
+3. 修改内核配置，禁用 e1000 网卡驱动:
 ```
 Device Drivers --->
     [*] Network device support --->
@@ -118,7 +118,7 @@ Device Drivers --->
             <> Intel devices, Intel(R) PRO/1000 Gigabit Ethernet support
 ```
 
-重新编译内核后再次启动内核并加载驱动模块:
+4. 重新编译内核后再次启动内核并加载驱动模块:
 ```sh
 insmod r4l_e1000_demo.ko
 ip link set eth0 up
@@ -348,3 +348,46 @@ index 7c235cf59..ac052b737 100644
 ```
 
 ---
+
+### 作业5: 注册字符设备
+#### 操作流程:
+1. 修改内核配置:
+
+<img src=./docs/images/char_dev_config.png width=80% />
+
+2. 修改 linux/samples/rust/rust_chrdev.rs 中的 write 和 read 方法:
+```rust
+fn write(this: &Self,_file: &file::File,reader: &mut impl kernel::io_buffer::IoBufferReader,offset:u64,) -> Result<usize> {
+    let mut buf = this.inner.lock();
+    let offset = offset as usize;
+
+    let buf_cap_left = buf.len().saturating_sub(offset);
+    let len = buf_cap_left.min(reader.len());
+    reader.read_slice(&mut buf[offset..offset+len])?;
+
+    Ok(len)
+}
+
+fn read(this: &Self,_file: &file::File,writer: &mut impl kernel::io_buffer::IoBufferWriter,offset:u64,) -> Result<usize> {
+    let buf = this.inner.lock();
+    let offset = offset as usize;
+
+    let buf_cap_left = buf.len().saturating_sub(offset);
+    let len = buf_cap_left.min(writer.len());
+    writer.write_slice(&buf[offset..offset+len])?;
+
+    Ok(len)
+}
+```
+
+3. 重新编译并启动内核:
+```sh
+make LLVM=/usr/lib/llvm14/bin/ -j$(nproc)
+cd ../src_e1000
+./build_image.sh
+```
+
+
+#### 实验效果:
+<img src=./docs/images/char_dev_test.png width=80% />
+

@@ -39,12 +39,26 @@ impl file::Operations for RustFile {
         )
     }
 
-    fn write(_this: &Self,_file: &file::File,_reader: &mut impl kernel::io_buffer::IoBufferReader,_offset:u64,) -> Result<usize> {
-        Err(EPERM)
+    fn write(this: &Self,_file: &file::File,reader: &mut impl kernel::io_buffer::IoBufferReader,offset:u64,) -> Result<usize> {
+        let mut buf = this.inner.lock();
+        let offset = offset as usize;
+
+        let buf_cap_left = buf.len().saturating_sub(offset);
+        let len = buf_cap_left.min(reader.len());
+        reader.read_slice(&mut buf[offset..offset+len])?;
+
+        Ok(len)
     }
 
-    fn read(_this: &Self,_file: &file::File,_writer: &mut impl kernel::io_buffer::IoBufferWriter,_offset:u64,) -> Result<usize> {
-        Err(EPERM)
+    fn read(this: &Self,_file: &file::File,writer: &mut impl kernel::io_buffer::IoBufferWriter,offset:u64,) -> Result<usize> {
+        let buf = this.inner.lock();
+        let offset = offset as usize;
+
+        let buf_cap_left = buf.len().saturating_sub(offset);
+        let len = buf_cap_left.min(writer.len());
+        writer.write_slice(&buf[offset..offset+len])?;
+
+        Ok(len)
     }
 }
 
