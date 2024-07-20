@@ -11,3 +11,4 @@ linux/build
 *.symvers
 *.order
 dump.dat
+r4l_experiment/initramfs
