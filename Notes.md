@@ -2,14 +2,6 @@
 
 [作业内容](https://docs.qq.com/doc/DSk5xTHRJY1FZVUdK)
 
-### 练习作业各阶段结果
-
-[作业 1](#homework.1)
-
-[作业 2](#homework.2)
-
-[作业 3](#homework.3)
-
 > 因为我日常使用的是 Archlinux，这里没有使用 docker 而是直接使用主机作为开发环境。由于很多工具之前都已经安装好了，这里就没有记录。另外 Archlinux 上很多工具和库版本都很新，所以作业操作过程中出了不少问题...
 > 
 > <div align="center"> <img src=./docs/images/host_env.png width=80% /> </div>
@@ -24,7 +16,7 @@ cargo +nig1htly install --locked --version $(scripts/min-tool-version.sh bindgen
 
 环境配置完成后运行 make LLVM=1 rustavailable
 
-<img src=./docs/images/linux_rust_available.png width=60% />
+<img src=./docs/images/linux_rust_available.png width=80% />
 
 
 #### 2. 配置 BusyBox 时出现无法找到 ncurses 错误  
@@ -56,14 +48,12 @@ make LLVM=1 menuconfig
 
 <img src=./docs/images/linux_rust_config.png width=80% />
 
-<div id="homework.1"></div>
-
 接着进行内核的编译：
 ```sh
 make LLVM=1 -j$(nproc)
 ```
 
-<img src=./docs/images/linux_compile_done.png width=60% />
+<img src=./docs/images/linux_compile_done.png width=80% />
 
 #### 问题记录
 
@@ -101,11 +91,13 @@ make LLVM=1 -j$(nproc)
 
 ### 作业2: 对 Linux 内核进行一些配置
 
+> NOTE: 按下 CTRL + A 后松开再按 X 可退出 QEMU
+
 #### 操作流程:
 驱动编译:
 ```sh
 cd src_e1000
-make LLVM=/usr/lib/llvm14/bin/
+make LLVM=1
 ```
 
 <img src=./docs/images/e1000_compile.png width=80% />
@@ -135,8 +127,6 @@ ip addr add 10.0.2.15/255.255.255.0 dev eth0
 ip route add default via 10.0.2.1
 ping 10.0.2.2
 ```
-
-<div id="homework.2"></div>
 
 <img src=./docs/images/e1000_insmod.png width=80% />
 <img src=./docs/images/e1000_ping.png width=80% />
@@ -179,8 +169,6 @@ make LLVM=/usr/lib/llvm14/bin/ menuconfig
 ```
 <img src=./docs/images/rust_helloworld_config.png width=80% />
 
-<div id="homework.3"></div>
-
 4. 启动内核检查模块功能是否正常
 ```sh
 cp samples/rust/rust_helloworld.ko ../src_e1000/rootfs/
@@ -189,9 +177,174 @@ cd ../src_e1000
 ```
 <img src=./docs/images/rust_helloworld_module.png width=80% />
 
-#### 修改后的文件
+#### 修改后的文件:
 [Makefile](./linux/samples/rust/Makefile)
 
 [Kconfig](./linux/samples/rust/Kconfig)
+
+---
+
+### 作业4：为 e1000 网卡驱动添加 remove 代码
+#### 操作流程:
+见作业内容
+
+#### 运行结果:
+<img src=./docs/images/e1000_rmmod_op.png width=80% />
+<img src=./docs/images/e1000_rmmod_ping.png width=80% />
+
+#### 文件修改:
+```diff
+diff --git a/linux/rust/kernel/net.rs b/linux/rust/kernel/net.rs
+index 0b432db74..ad74a0fd0 100644
+--- a/linux/rust/kernel/net.rs
++++ b/linux/rust/kernel/net.rs
+@@ -479,6 +479,14 @@ impl Napi {
+         }
+     }
+ 
++    /// Disable NAPI scheduling.
++    pub fn disable(&self) {
++        // SAFETY: The existence of a shared reference means `self.0` is valid.
++        unsafe {
++            bindings::napi_disable(self.0.get());
++        }
++    }
++
+     /// Schedule NAPI poll routine to be called if it is not already running.
+     pub fn schedule(&self) {
+         // SAFETY: The existence of a shared reference means `self.0` is valid.
+diff --git a/linux/rust/kernel/pci.rs b/linux/rust/kernel/pci.rs
+index f10753105..1fbd79596 100644
+--- a/linux/rust/kernel/pci.rs
++++ b/linux/rust/kernel/pci.rs
+@@ -267,7 +267,7 @@ impl Device {
+     ///
+     /// `ptr` must be non-null and valid. It must remain valid for the lifetime of the returned
+     /// instance.
+-    unsafe fn from_ptr(ptr: *mut bindings::pci_dev) -> Self {
++    pub unsafe fn from_ptr(ptr: *mut bindings::pci_dev) -> Self {
+         Self { ptr }
+     }
+ 
+@@ -277,6 +277,12 @@ impl Device {
+         unsafe { bindings::pci_set_master(self.ptr) };
+     }
+ 
++    /// disables bus-mastering for device
++    pub fn clear_master(&self) {
++        // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
++        unsafe { bindings::pci_clear_master(self.ptr) };
++    }
++
+     /// get legacy irq number
+     pub fn irq(&self) -> u32 {
+         // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
+@@ -294,6 +300,12 @@ impl Device {
+         }
+     }
+ 
++    /// disable device
++    pub fn disable_device(&mut self) {
++        // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
++        unsafe { bindings::pci_disable_device(self.ptr) };
++    }
++
+     /// iter PCI Resouces
+     pub fn iter_resource(&self) -> impl Iterator<Item = Resource> + '_ {
+         // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
+@@ -323,10 +335,21 @@ impl Device {
+         }
+     }
+ 
++    /// Release selected PCI I/O and memory resources
++    pub fn release_selected_regions(&mut self, bars: i32) {
++        // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
++        unsafe { bindings::pci_release_selected_regions(self.ptr, bars) };
++    }
++
+     /// Get address for accessing the device
+     pub fn map_resource(&self, resource: &Resource, len: usize) -> Result<MappedResource> {
+         MappedResource::try_new(resource.start, len)
+     }
++
++    /// Get pointer of the device
++    pub unsafe fn ptr(&self) -> *mut bindings::pci_dev {
++        self.ptr
++    }
+ }
+ 
+ unsafe impl device::RawDevice for Device {
+diff --git a/src_e1000/r4l_e1000_demo.rs b/src_e1000/r4l_e1000_demo.rs
+index 7c235cf59..ac052b737 100644
+--- a/src_e1000/r4l_e1000_demo.rs
++++ b/src_e1000/r4l_e1000_demo.rs
+@@ -189,8 +189,20 @@ impl net::DeviceOperations for NetDevice {
+         Ok(())
+     }
+ 
+-    fn stop(_dev: &net::Device, _data: &NetDevicePrvData) -> Result {
++    fn stop(dev: &net::Device, data: &NetDevicePrvData) -> Result {
+         pr_info!("Rust for linux e1000 driver demo (net device stop)\n");
++
++        dev.netif_carrier_off();
++        dev.netif_stop_queue();
++        data.napi.disable();
++
++        data.e1000_hw_ops.e1000_reset_hw();
++        data._irq_handler
++            .store(core::ptr::null_mut(), core::sync::atomic::Ordering::Relaxed);
++
++        let _ = data.tx_ring.lock_irqdisable().take();
++        let _ = data.rx_ring.lock_irqdisable().take();
++
+         Ok(())
+     }
+ 
+@@ -293,6 +305,8 @@ impl kernel::irq::Handler for E1000InterruptHandler {
+ /// the private data for the adapter
+ struct E1000DrvPrvData {
+     _netdev_reg: net::Registration<NetDevice>,
++    pci_dev_ptr: AtomicPtr<bindings::pci_dev>,
++    bars: i32,
+ }
+ 
+ impl driver::DeviceRemoval for E1000DrvPrvData {
+@@ -462,12 +476,28 @@ impl pci::Driver for E1000Drv {
+             E1000DrvPrvData{
+                 // Must hold this registration, or the device will be removed.
+                 _netdev_reg: netdev_reg,
++                pci_dev_ptr: AtomicPtr::new(unsafe { dev.ptr() }),
++                bars,
+             }
+         )?)
+     }
+ 
+     fn remove(data: &Self::Data) {
+         pr_info!("Rust for linux e1000 driver demo (remove)\n");
++
++        let mut netdev_reg = &data._netdev_reg;
++        let netdev = netdev_reg.dev_get();
++        netdev.netif_carrier_off();
++        netdev.netif_stop_queue();
++        drop(netdev);
++        drop(netdev_reg);
++
++        let pci_dev_ptr = data.pci_dev_ptr.load(core::sync::atomic::Ordering::Relaxed);
++        let mut pci_dev = unsafe { pci::Device::from_ptr(pci_dev_ptr) };
++
++        pci_dev.release_selected_regions(data.bars);
++        pci_dev.clear_master();
++        pci_dev.disable_device();
+     }
+ }
+ struct E1000KernelMod {
+@@ -488,5 +518,6 @@ impl kernel::Module for E1000KernelMod {
+ impl Drop for E1000KernelMod {
+     fn drop(&mut self) {
+         pr_info!("Rust for linux e1000 driver demo (exit)\n");
++        drop(&self._dev);
+     }
+ }
+```
 
 ---
