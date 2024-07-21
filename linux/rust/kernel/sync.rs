@@ -25,6 +25,7 @@ use crate::{bindings, str::CStr};
 use core::{cell::UnsafeCell, mem::MaybeUninit, pin::Pin};
 
 mod arc;
+mod completion;
 mod condvar;
 mod guard;
 mod locked_by;
@@ -38,6 +39,7 @@ pub mod smutex;
 mod spinlock;
 
 pub use arc::{new_refcount, Arc, ArcBorrow, StaticArc, UniqueArc};
+pub use completion::Completion;
 pub use condvar::CondVar;
 pub use guard::{Guard, Lock, LockFactory, LockInfo, LockIniter, ReadLock, WriteLock};
 pub use locked_by::LockedBy;

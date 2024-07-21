@@ -33,6 +33,9 @@ A2: 在 Makefile 中使用 $(MAKE) -C $(KDIR) M=$$PWD 命令指定了内核和�
 
 <img src=./docs/images/char_dev_test.png width=100% />
 
+Q：作业5中的字符设备/dev/cicv是怎么创建的？它的设备号是多少？它是如何与我们写的字符设备驱动关联上的？
+A: /dev/cicv 是通过 **mknod /dev/cicv c 248 0** 命令创建的，它的设备号是 0。设备在注册时需要指定设备号，两者匹配时就会关联上。
+
 ### 项目小试验
 
 #### 环境:
@@ -47,3 +50,6 @@ A2: 在 Makefile 中使用 $(MAKE) -C $(KDIR) M=$$PWD 命令指定了内核和�
 
 #### 实战:
 
+<img src=./docs/images/rust_completion.png width=60% />
+
+> 修改文件见 [Notes](Notes.md)

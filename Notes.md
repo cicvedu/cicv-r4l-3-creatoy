@@ -391,6 +391,9 @@ cd ../src_e1000
 #### 实验效果:
 <img src=./docs/images/char_dev_test.png width=80% />
 
+Q：作业5中的字符设备/dev/cicv是怎么创建的？它的设备号是多少？它是如何与我们写的字符设备驱动关联上的？
+A: /dev/cicv 是通过 **mknod /dev/cicv c 248 0** 命令创建的，它的设备号是 0。设备在注册时需要指定设备号，两者匹配时就会关联上。
+
 ---
 
 ## 项目小试验
@@ -398,6 +401,8 @@ cd ../src_e1000
 ##### 1. 创建 initramfs 镜像
 
 <img src=./docs/images/initramfs.png width=80% />
+
+> NOTE: 下面的实验需要网络设备驱动，做之前先把作业2中删掉的驱动再装回去
 
 ##### 2. 支持 NFS
 
@@ -409,3 +414,387 @@ cd ../src_e1000
 
 #### 项目实战:
 
+<img src=./docs/images/rust_completion.png width=60% />
+
+##### 修改的文件:
+```diff
+diff --git a/linux/rust/kernel/sync.rs b/linux/rust/kernel/sync.rs
+index b2c722187..9ba8f3e6f 100644
+--- a/linux/rust/kernel/sync.rs
++++ b/linux/rust/kernel/sync.rs
+@@ -25,6 +25,7 @@ use crate::{bindings, str::CStr};
+ use core::{cell::UnsafeCell, mem::MaybeUninit, pin::Pin};
+ 
+ mod arc;
++mod completion;
+ mod condvar;
+ mod guard;
+ mod locked_by;
+@@ -38,6 +39,7 @@ pub mod smutex;
+ mod spinlock;
+ 
+ pub use arc::{new_refcount, Arc, ArcBorrow, StaticArc, UniqueArc};
++pub use completion::Completion;
+ pub use condvar::CondVar;
+ pub use guard::{Guard, Lock, LockFactory, LockInfo, LockIniter, ReadLock, WriteLock};
+ pub use locked_by::LockedBy;
+diff --git a/linux/rust/kernel/sync/completion.rs b/linux/rust/kernel/sync/completion.rs
+new file mode 100644
+index 000000000..eb7beac99
+--- /dev/null
++++ b/linux/rust/kernel/sync/completion.rs
+@@ -0,0 +1,61 @@
++use super::{LockClassKey, NeedsLockClass};
++use crate::{bindings, str::CStr, Opaque};
++use core::{marker::PhantomPinned, pin::Pin};
++
++
++/// Safely initialises a [`Completion`] with the given name, generating a new lock class.
++#[macro_export]
++macro_rules! completion_init {
++    ($completion:expr, $name:literal) => {
++        $crate::init_with_lockdep!($completion, $name)
++    };
++}
++
++/// A wrapper around a kernel completion object.
++pub struct Completion {
++    completion: Opaque<bindings::completion>,
++
++    _pin: PhantomPinned,
++}
++
++unsafe impl Send for Completion {}
++unsafe impl Sync for Completion {}
++
++impl Completion {
++    /// The caller must call `completion_init!` before using the conditional variable.
++    pub const unsafe fn new() -> Self {
++        Self {
++            completion: Opaque::uninit(),
++            _pin: PhantomPinned,
++        }
++    }
++
++    /// Wait for the completion to complete.
++    pub fn wait(&self) {
++        unsafe { bindings::wait_for_completion(self.completion.get()) }
++        // Task::current().signal_pending()
++    }
++
++    /// Complete the completion.
++    pub fn complete(&self) {
++        unsafe { bindings::complete(self.completion.get()) }
++    }
++
++    /// Get the completion pointer.
++    pub fn completion(&self) -> *mut bindings::completion {
++        self.completion.get()
++    }
++}
++
++impl NeedsLockClass for Completion {
++    fn init(
++        self: Pin<&mut Self>,
++        _name: &'static CStr,
++        _key: &'static LockClassKey,
++        _: &'static LockClassKey,
++    ) {
++        unsafe {
++            bindings::init_completion(self.completion.get())
++        };
++    }
++}
+diff --git a/r4l_experiment/driver/rust_completion/rust_completion.rs b/r4l_experiment/driver/rust_completion/rust_completion.rs
+index e0d1195b4..0271a4ee1 100644
+--- a/r4l_experiment/driver/rust_completion/rust_completion.rs
++++ b/r4l_experiment/driver/rust_completion/rust_completion.rs
+@@ -1,27 +1,90 @@
+ // SPDX-License-Identifier: GPL-2.0
+-//! Rust hello world module sample
++
++//! Rust completion sample.
+ 
+ use kernel::prelude::*;
++use kernel::{
++    file::self,
++    chrdev,
++    bindings,
++    sync::Completion,
++    task::Task,
++};
+ 
+ module! {
+     type: RustCompletion,
+-    name: "rust_helloworld",
++    name: "rust_completion",
+     author: "creatoy",
+-    description: "Hello world module in rust",
++    description: "Rust completion sample",
+     license: "GPL",
+ }
+ 
+-struct RustCompletion {}
++static SHARED_COMPLETION: Completion = unsafe { Completion::new() };
++
++struct RustFile {
++    #[allow(dead_code)]
++    inner: &'static Completion,
++}
++
++#[vtable]
++impl file::Operations for RustFile {
++    type Data = Box<Self>;
++
++    fn open(_shared: &(), _file: &file::File) -> Result<Box<Self>> {
++        pr_warn!("open is invoked\n");
++
++        Ok(
++            Box::try_new(RustFile {
++                inner: &SHARED_COMPLETION
++            })?
++        )
++    }
++
++   diff --git a/linux/rust/kernel/sync.rs b/linux/rust/kernel/sync.rs
+index b2c722187..9ba8f3e6f 100644
+--- a/linux/rust/kernel/sync.rs
++++ b/linux/rust/kernel/sync.rs
+@@ -25,6 +25,7 @@ use crate::{bindings, str::CStr};
+ use core::{cell::UnsafeCell, mem::MaybeUninit, pin::Pin};
+ 
+ mod arc;
++mod completion;
+ mod condvar;
+ mod guard;
+ mod locked_by;
+@@ -38,6 +39,7 @@ pub mod smutex;
+ mod spinlock;
+ 
+ pub use arc::{new_refcount, Arc, ArcBorrow, StaticArc, UniqueArc};
++pub use completion::Completion;
+ pub use condvar::CondVar;
+ pub use guard::{Guard, Lock, LockFactory, LockInfo, LockIniter, ReadLock, WriteLock};
+ pub use locked_by::LockedBy;
+diff --git a/linux/rust/kernel/sync/completion.rs b/linux/rust/kernel/sync/completion.rs
+new file mode 100644
+index 000000000..eb7beac99
+--- /dev/null
++++ b/linux/rust/kernel/sync/completion.rs
+@@ -0,0 +1,61 @@
++use super::{LockClassKey, NeedsLockClass};
++use crate::{bindings, str::CStr, Opaque};
++use core::{marker::PhantomPinned, pin::Pin};
++
++
++/// Safely initialises a [`Completion`] with the given name, generating a new lock class.
++#[macro_export]
++macro_rules! completion_init {
++    ($completion:expr, $name:literal) => {
++        $crate::init_with_lockdep!($completion, $name)
++    };
++}
++
++/// A wrapper around a kernel completion object.
++pub struct Completion {
++    completion: Opaque<bindings::completion>,
++
++    _pin: PhantomPinned,
++}
++
++unsafe impl Send for Completion {}
++unsafe impl Sync for Completion {}
++
++impl Completion {
++    /// The caller must call `completion_init!` before using the conditional variable.
++    pub const unsafe fn new() -> Self {
++        Self {
++            completion: Opaque::uninit(),
++            _pin: PhantomPinned,
++        }
++    }
++
++    /// Wait for the completion to complete.
++    pub fn wait(&self) {
++        unsafe { bindings::wait_for_completion(self.completion.get()) }
++        // Task::current().signal_pending()
++    }
++
++    /// Complete the completion.
++    pub fn complete(&self) {
++        unsafe { bindings::complete(self.completion.get()) }
++    }
++
++    /// Get the completion pointer.
++    pub fn completion(&self) -> *mut bindings::completion {
++        self.completion.get()
++    }
++}
++
++impl NeedsLockClass for Completion {
++    fn init(
++        self: Pin<&mut Self>,
++        _name: &'static CStr,
++        _key: &'static LockClassKey,
++        _: &'static LockClassKey,
++    ) {
++        unsafe {
++            bindings::init_completion(self.completion.get())
++        };
++    }
++}
+diff --git a/r4l_experiment/driver/rust_completion/rust_completion.rs b/r4l_experiment/driver/rust_completion/rust_completion.rs
+index e0d1195b4..0271a4ee1 100644
+--- a/r4l_experiment/driver/rust_completion/rust_completion.rs
++++ b/r4l_experiment/driver/rust_completion/rust_completion.rs
+@@ -1,27 +1,90 @@
+ // SPDX-License-Identifier: GPL-2.0
+-//! Rust hello world module sample
++
++//! Rust completion sample.
+ 
+ use kernel::prelude::*;
++use kernel::{
++    file::self,
++    chrdev,
++    bindings,
++    sync::Completion,
++    task::Task,
++};
+ 
+ module! {
+     type: RustCompletion,
+-    name: "rust_helloworld",
++    name: "rust_completion",
+     author: "creatoy",
+-    description: "Hello world module in rust",
++    description: "Rust completion sample",
+     license: "GPL",
+ }
+ 
+-struct RustCompletion {}
++static SHARED_COMPLETION: Completion = unsafe { Completion::new() };
++
++struct RustFile {
++    #[allow(dead_code)]
++    inner: &'static Completion,
++}
++
++#[vtable]
++impl file::Operations for RustFile {
++    type Data = Box<Self>;
++
++    fn open(_shared: &(), _file: &file::File) -> Result<Box<Self>> {
++        pr_warn!("open is invoked\n");
++
++        Ok(
++            Box::try_new(RustFile {
++                inner: &SHARED_COMPLETION
++            })?
++        )
++    }
++
++    fn write(this: &Self,_file: &file::File,reader: &mut impl kernel::io_buffer::IoBufferReader,_offset:u64,) -> Result<usize> {
++        pr_info!("write is invoked\n");
++
++        let current = Task::current();
++
++        pr_info!("process {} awakening the readers...\n", current.pid());
++        this.inner.complete();
++
++        Ok(reader.len())
++    }
++
++    fn read(this: &Self,_file: &file::File,_writer: &mut impl kernel::io_buffer::IoBufferWriter,_offset:u64,) -> Result<usize> {
++        pr_info!("read is invoked\n");
++
++        let current = Task::current();
++
++        pr_info!("process {} is going to sleep\n", current.pid());
++        this.inner.wait();
++        pr_info!("awoken {}\n", current.pid());
++
++        Ok(0)
++    }
++}
++
++struct RustCompletion {
++    _dev: Pin<Box<chrdev::Registration<1>>>,
++}
+ 
+ impl kernel::Module for RustCompletion {
+-    fn init(_name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
+-        pr_info!("Hello, Rust completion!\n");
+-        Ok(RustCompletion {})
++    fn init(name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
++        pr_info!("Rust completion sample (init)\n");
++
++        unsafe {
++            bindings::init_completion(SHARED_COMPLETION.completion());
++        }
++
++        let mut chrdev_reg = chrdev::Registration::new_pinned(name, 0, module)?;
++        chrdev_reg.as_mut().register::<RustFile>()?;
++
++        Ok(RustCompletion { _dev: chrdev_reg })
+     }
+ }
+ 
+ impl Drop for RustCompletion {
+     fn drop(&mut self) {
+-        pr_info!("Bye, Rust completion!\n");
++        pr_info!("Rust completion sample (exit)\n");
+     }
+ } fn write(this: &Self,_file: &file::File,reader: &mut impl kernel::io_buffer::IoBufferReader,_offset:u64,) -> Result<usize> {
++        pr_info!("write is invoked\n");
++
++        let current = Task::current();
++
++        pr_info!("process {} awakening the readers...\n", current.pid());
++        this.inner.complete();
++
++        Ok(reader.len())
++    }
++
++    fn read(this: &Self,_file: &file::File,_writer: &mut impl kernel::io_buffer::IoBufferWriter,_offset:u64,) -> Result<usize> {
++        pr_info!("read is invoked\n");
++
++        let current = Task::current();
++
++        pr_info!("process {} is going to sleep\n", current.pid());
++        this.inner.wait();
++        pr_info!("awoken {}\n", current.pid());
++
++        Ok(0)
++    }
++}
++
++struct RustCompletion {
++    _dev: Pin<Box<chrdev::Registration<1>>>,
++}
+ 
+ impl kernel::Module for RustCompletion {
+-    fn init(_name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
+-        pr_info!("Hello, Rust completion!\n");
+-        Ok(RustCompletion {})
++    fn init(name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
++        pr_info!("Rust completion sample (init)\n");
++
++        unsafe {
++            bindings::init_completion(SHARED_COMPLETION.completion());
++        }
++
++        let mut chrdev_reg = chrdev::Registration::new_pinned(name, 0, module)?;
++        chrdev_reg.as_mut().register::<RustFile>()?;
++
++        Ok(RustCompletion { _dev: chrdev_reg })
+     }
+ }
+ 
+ impl Drop for RustCompletion {
+     fn drop(&mut self) {
+-        pr_info!("Bye, Rust completion!\n");
++        pr_info!("Rust completion sample (exit)\n");
+     }
+ }
+```
