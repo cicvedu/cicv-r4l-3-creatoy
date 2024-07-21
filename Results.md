@@ -52,4 +52,4 @@ A: /dev/cicv 是通过 **mknod /dev/cicv c 248 0** 命令创建的，它的设�
 
 <img src=./docs/images/rust_completion.png width=60% />
 
-> 修改文件见 [Notes](Notes.md)
+> 修改文件见 [Notes](./Notes.md#修改的文件)
